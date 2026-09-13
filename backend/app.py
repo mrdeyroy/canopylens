@@ -262,27 +262,30 @@ def filter_predictions(
 
 
 def main():
-    # Header
-    st.markdown('<div class="main-title">🌲 CanopyLens</div>', unsafe_allow_html=True)
+    # Inject Custom Theme-Safe CSS on every rerun
+    st.markdown(CUSTOM_CSS, unsafe_allow_html=True)
+
+    # Header with inline styles for guaranteed cloud rendering
+    st.markdown('<div class="main-title" style="font-size: 2.2rem; font-weight: 700; color: #2d6a4f; margin-bottom: 0.1rem;">🌲 CanopyLens</div>', unsafe_allow_html=True)
     st.markdown(
-        '<div class="sub-title">Tree Crown Detection & Canopy Area Estimation</div>',
+        '<div class="sub-title" style="font-size: 1.05rem; font-weight: 500; color: #40916c; margin-bottom: 0.3rem;">Tree Crown Detection & Canopy Area Estimation</div>',
         unsafe_allow_html=True
     )
     st.markdown(
-        '<div class="tagline">Upload high-resolution forest imagery to detect individual tree crowns and estimate canopy coverage.</div>',
+        '<div class="tagline" style="font-size: 0.9rem; color: #777; margin-bottom: 1.0rem;">Upload high-resolution forest imagery to detect individual tree crowns and estimate canopy coverage.</div>',
         unsafe_allow_html=True
     )
 
-    # 4-Step Visual Workflow Stepper
+    # 4-Step Visual Workflow Stepper with robust inline styling
     st.markdown("""
-    <div class="stepper-banner">
-        <span><span class="step-num">STEP 1</span> Upload Forest Image</span>
-        <span>&nbsp;➔&nbsp;</span>
-        <span><span class="step-num">STEP 2</span> Area of Interest (Optional)</span>
-        <span>&nbsp;➔&nbsp;</span>
-        <span><span class="step-num">STEP 3</span> Configure GSD</span>
-        <span>&nbsp;➔&nbsp;</span>
-        <span><span class="step-num">STEP 4</span> Click Analyze Forest</span>
+    <div class="stepper-banner" style="background: rgba(45, 106, 79, 0.08); border: 1px solid rgba(45, 106, 79, 0.25); border-radius: 8px; padding: 10px 16px; margin-bottom: 20px; font-size: 0.88rem; display: flex; flex-wrap: wrap; align-items: center; gap: 8px;">
+        <span><span class="step-num" style="font-weight: 700; color: #2d6a4f; background: rgba(45, 106, 79, 0.15); padding: 3px 8px; border-radius: 6px; margin-right: 4px;">STEP 1</span> Upload Forest Image</span>
+        <span style="color: #40916c;">➔</span>
+        <span><span class="step-num" style="font-weight: 700; color: #2d6a4f; background: rgba(45, 106, 79, 0.15); padding: 3px 8px; border-radius: 6px; margin-right: 4px;">STEP 2</span> Area of Interest (Optional)</span>
+        <span style="color: #40916c;">➔</span>
+        <span><span class="step-num" style="font-weight: 700; color: #2d6a4f; background: rgba(45, 106, 79, 0.15); padding: 3px 8px; border-radius: 6px; margin-right: 4px;">STEP 3</span> Configure GSD</span>
+        <span style="color: #40916c;">➔</span>
+        <span><span class="step-num" style="font-weight: 700; color: #2d6a4f; background: rgba(45, 106, 79, 0.15); padding: 3px 8px; border-radius: 6px; margin-right: 4px;">STEP 4</span> Click Analyze Forest</span>
     </div>
     """, unsafe_allow_html=True)
 
@@ -655,10 +658,10 @@ def main():
 
     with col1:
         st.markdown(f"""
-        <div class="metric-card">
-            <div class="metric-title">Trees Detected</div>
-            <div class="metric-value">{metrics['tree_count']}</div>
-            <div class="metric-sub">{'Inside AOI' if is_drawn_roi else 'Individual Crowns'}</div>
+        <div class="metric-card" style="background: rgba(128, 128, 128, 0.06); border: 1px solid rgba(128, 128, 128, 0.18); border-radius: 10px; padding: 14px 10px; text-align: center; margin-bottom: 10px;">
+            <div class="metric-title" style="font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px; font-weight: 600; opacity: 0.8;">Trees Detected</div>
+            <div class="metric-value" style="font-size: 1.75rem; font-weight: 700; color: #2d6a4f;">{metrics['tree_count']}</div>
+            <div class="metric-sub" style="font-size: 0.75rem; opacity: 0.7; margin-top: 2px;">{'Inside AOI' if is_drawn_roi else 'Individual Crowns'}</div>
         </div>
         """, unsafe_allow_html=True)
 
@@ -670,10 +673,10 @@ def main():
             val_str = "Unavailable"
             sub_str = "Provide GSD or GeoTIFF"
         st.markdown(f"""
-        <div class="metric-card">
-            <div class="metric-title">Canopy Area (Proxy)</div>
-            <div class="metric-value">{val_str}</div>
-            <div class="metric-sub">{sub_str}</div>
+        <div class="metric-card" style="background: rgba(128, 128, 128, 0.06); border: 1px solid rgba(128, 128, 128, 0.18); border-radius: 10px; padding: 14px 10px; text-align: center; margin-bottom: 10px;">
+            <div class="metric-title" style="font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px; font-weight: 600; opacity: 0.8;">Canopy Area (Proxy)</div>
+            <div class="metric-value" style="font-size: 1.75rem; font-weight: 700; color: #2d6a4f;">{val_str}</div>
+            <div class="metric-sub" style="font-size: 0.75rem; opacity: 0.7; margin-top: 2px;">{sub_str}</div>
         </div>
         """, unsafe_allow_html=True)
 
@@ -702,10 +705,10 @@ def main():
             sub_str = f"{img_w * img_h:,.0f} px²"
 
         st.markdown(f"""
-        <div class="metric-card">
-            <div class="metric-title">AOI Boundary</div>
-            <div class="metric-value">{val_str}</div>
-            <div class="metric-sub">{sub_str}</div>
+        <div class="metric-card" style="background: rgba(128, 128, 128, 0.06); border: 1px solid rgba(128, 128, 128, 0.18); border-radius: 10px; padding: 14px 10px; text-align: center; margin-bottom: 10px;">
+            <div class="metric-title" style="font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px; font-weight: 600; opacity: 0.8;">AOI Boundary</div>
+            <div class="metric-value" style="font-size: 1.75rem; font-weight: 700; color: #2d6a4f;">{val_str}</div>
+            <div class="metric-sub" style="font-size: 0.75rem; opacity: 0.7; margin-top: 2px;">{sub_str}</div>
         </div>
         """, unsafe_allow_html=True)
 
@@ -717,25 +720,25 @@ def main():
             val_str = "Unavailable"
             sub_str = "Unverified alignment" if aoi_mode == "Upload KML Boundary" else "GSD missing"
         st.markdown(f"""
-        <div class="metric-card">
-            <div class="metric-title">Canopy Coverage</div>
-            <div class="metric-value">{val_str}</div>
-            <div class="metric-sub">{sub_str}</div>
+        <div class="metric-card" style="background: rgba(128, 128, 128, 0.06); border: 1px solid rgba(128, 128, 128, 0.18); border-radius: 10px; padding: 14px 10px; text-align: center; margin-bottom: 10px;">
+            <div class="metric-title" style="font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px; font-weight: 600; opacity: 0.8;">Canopy Coverage</div>
+            <div class="metric-value" style="font-size: 1.75rem; font-weight: 700; color: #2d6a4f;">{val_str}</div>
+            <div class="metric-sub" style="font-size: 0.75rem; opacity: 0.7; margin-top: 2px;">{sub_str}</div>
         </div>
         """, unsafe_allow_html=True)
 
     with col5:
         st.markdown(f"""
-        <div class="metric-card">
-            <div class="metric-title">Mean Confidence</div>
-            <div class="metric-value">{metrics['mean_confidence']:.1f}%</div>
-            <div class="metric-sub">Threshold: ≥ {min_conf_input:.2f}</div>
+        <div class="metric-card" style="background: rgba(128, 128, 128, 0.06); border: 1px solid rgba(128, 128, 128, 0.18); border-radius: 10px; padding: 14px 10px; text-align: center; margin-bottom: 10px;">
+            <div class="metric-title" style="font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px; font-weight: 600; opacity: 0.8;">Mean Confidence</div>
+            <div class="metric-value" style="font-size: 1.75rem; font-weight: 700; color: #2d6a4f;">{metrics['mean_confidence']:.1f}%</div>
+            <div class="metric-sub" style="font-size: 0.75rem; opacity: 0.7; margin-top: 2px;">Threshold: ≥ {min_conf_input:.2f}</div>
         </div>
         """, unsafe_allow_html=True)
 
     # Scientific Honesty & Limitations Notification Box
     st.markdown(f"""
-    <div class="disclaimer-box">
+    <div class="disclaimer-box" style="background: rgba(245, 159, 0, 0.08); border-left: 4px solid #f59f00; padding: 12px 16px; border-radius: 4px; font-size: 0.86rem; color: inherit; margin: 14px 0; line-height: 1.45;">
         <strong>⚠️ Measurement Transparency:</strong> {metrics['area_status_message']}<br>
         <em>{metrics['disclaimer']}</em>
     </div>
