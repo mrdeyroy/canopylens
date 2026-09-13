@@ -22,7 +22,25 @@ CURRENT_DIR = Path(__file__).resolve().parent
 if str(CURRENT_DIR) not in sys.path:
     sys.path.insert(0, str(CURRENT_DIR))
 
-from detection import load_model, detect_tree_crowns, draw_annotated_image, extract_tree_crop
+# Force reload local modules if running in persistent Streamlit process
+import importlib
+import detection
+importlib.reload(detection)
+
+try:
+    from detection import load_model, detect_tree_crowns, draw_annotated_image, extract_tree_crop
+except ImportError:
+    from detection import load_model, detect_tree_crowns, draw_annotated_image
+    def extract_tree_crop(image: np.ndarray, bbox: Tuple[float, float, float, float], padding: int = 12) -> np.ndarray:
+        h, w = image.shape[:2]
+        xmin, ymin, xmax, ymax = bbox
+        pad_xmin = max(0, int(round(xmin)) - padding)
+        pad_ymin = max(0, int(round(ymin)) - padding)
+        pad_xmax = min(w, int(round(xmax)) + padding)
+        pad_ymax = min(h, int(round(ymax)) + padding)
+        crop = image[pad_ymin:pad_ymax, pad_xmin:pad_xmax]
+        return crop if crop.size > 0 else image[max(0, int(ymin)):min(h, int(ymax)), max(0, int(xmin)):min(w, int(xmax))]
+
 from geo import parse_kml, extract_geotiff_metadata, validate_image_kml_alignment
 from area import calculate_canopy_metrics, PROXY_DISCLAIMER
 
