@@ -136,15 +136,22 @@ def get_cached_detector():
 def generate_summary_report(
     image_name: str,
     kml_name: Optional[str],
-    metrics: dict,
+    metrics: Dict[str, Any],
     kml_data: Optional[dict],
     gsd_m: Optional[float],
-    min_confidence: float = 0.0
+    min_confidence: float = 0.0,
+    aoi_mode: str = "Analyze Entire Image",
+    drawn_aoi_info: Optional[str] = None
 ) -> str:
     """Generates a plain-text scientific analysis report."""
-    aoi_str = "Not provided"
-    if kml_data and kml_data.get("aoi_area_ha"):
+    if aoi_mode == "Draw Area on Image" and drawn_aoi_info:
+        aoi_str = f"Custom Drawn Region ({drawn_aoi_info})"
+    elif kml_data and kml_data.get("aoi_area_ha"):
         aoi_str = f"{kml_data['aoi_area_m2']:,.1f} m² ({kml_data['aoi_area_ha']:.3f} ha)"
+    elif aoi_mode == "Analyze Entire Image":
+        aoi_str = "Full Image Extent (No boundary constraint)"
+    else:
+        aoi_str = "Not provided"
 
     canopy_str = "Unavailable (GSD missing)"
     if metrics["total_canopy_m2"] is not None:
@@ -156,6 +163,11 @@ def generate_summary_report(
 
     gsd_str = f"{gsd_m:.4f} m/pixel" if gsd_m else "Not provided (pixel metrics only)"
     conf_str = f"{min_confidence:.2f}" if min_confidence > 0 else "0.00 (All detections)"
+    aoi_setting = aoi_mode
+    if aoi_mode == "Upload KML Boundary":
+        aoi_setting = f"KML ({kml_name or 'Not provided'})"
+    elif aoi_mode == "Draw Area on Image" and drawn_aoi_info:
+        aoi_setting = f"Drawn Region ({drawn_aoi_info})"
 
     return f"""==================================================
 CANOPYLENS ANALYSIS REPORT
@@ -168,7 +180,7 @@ Model: DeepForest 2.1.0 (RetinaNet / ResNet-50)
 INPUTS & SETTINGS
 --------------------------------------------------
 Input Image:                  {image_name}
-KML Boundary:                 {kml_name or 'Not provided'}
+AOI Selection Mode:           {aoi_setting}
 Applied GSD:                  {gsd_str}
 Confidence Threshold:         {conf_str}
 
@@ -202,8 +214,15 @@ SCIENTIFIC LIMITATIONS & HONESTY DECLARATION
 """
 
 
-def filter_predictions(df: pd.DataFrame, min_conf: float) -> pd.DataFrame:
-    """Filters predictions DataFrame by confidence threshold and re-numbers Tree IDs."""
+def filter_predictions(
+    df: pd.DataFrame,
+    min_conf: float = 0.0,
+    roi_box: Optional[Tuple[int, int, int, int]] = None
+) -> pd.DataFrame:
+    """
+    Filters predictions DataFrame by confidence threshold and optional ROI bounding box,
+    then re-numbers Tree IDs sequentially.
+    """
     if df is None or df.empty:
         return pd.DataFrame(columns=["tree_id", "xmin", "ymin", "xmax", "ymax", "confidence", "label"])
 
@@ -211,6 +230,14 @@ def filter_predictions(df: pd.DataFrame, min_conf: float) -> pd.DataFrame:
     if min_conf > 0.0:
         conf_col = "confidence" if "confidence" in filtered.columns else "score"
         filtered = filtered[filtered[conf_col] >= min_conf].reset_index(drop=True)
+
+    if roi_box is not None and not filtered.empty:
+        rx_min, ry_min, rx_max, ry_max = roi_box
+        # Calculate crown centers
+        cx = (filtered["xmin"].astype(float) + filtered["xmax"].astype(float)) / 2.0
+        cy = (filtered["ymin"].astype(float) + filtered["ymax"].astype(float)) / 2.0
+        mask = (cx >= rx_min) & (cx <= rx_max) & (cy >= ry_min) & (cy <= ry_max)
+        filtered = filtered[mask].reset_index(drop=True)
 
     filtered["tree_id"] = [f"T{i+1:03d}" for i in range(len(filtered))]
     return filtered
@@ -233,7 +260,7 @@ def main():
     <div class="stepper-banner">
         <span><span class="step-num">STEP 1</span> Upload Forest Image</span>
         <span>&nbsp;➔&nbsp;</span>
-        <span><span class="step-num">STEP 2</span> Optional: Upload KML Boundary</span>
+        <span><span class="step-num">STEP 2</span> Area of Interest (Optional)</span>
         <span>&nbsp;➔&nbsp;</span>
         <span><span class="step-num">STEP 3</span> Configure GSD</span>
         <span>&nbsp;➔&nbsp;</span>
@@ -260,11 +287,17 @@ def main():
         st.session_state["kml_data"] = None
     if "kml_name" not in st.session_state:
         st.session_state["kml_name"] = None
+    if "aoi_roi_h" not in st.session_state:
+        st.session_state["aoi_roi_h"] = (0, 100)
+    if "aoi_roi_v" not in st.session_state:
+        st.session_state["aoi_roi_v"] = (0, 100)
 
     # ----------------------------------------------------
-    # SIDEBAR CONTROLS (Steps 1, 2, 3)
+    # SIDEBAR CONTROLS (Steps 1, 2, 3, 4)
     # ----------------------------------------------------
-    st.sidebar.header("📁 Step 1 & 2: Upload Data")
+    
+    # --- Step 1: Upload Imagery ---
+    st.sidebar.header("📷 Step 1: Upload Imagery")
 
     # Demo Dataset Quick-Select
     st.sidebar.markdown("""
@@ -279,18 +312,11 @@ def main():
     """, unsafe_allow_html=True)
 
     use_sample_image = st.sidebar.checkbox("Use Sample Forest Image", value=True)
-    use_sample_kml = st.sidebar.checkbox("Use Sample KML Boundary", value=False)
 
     uploaded_image_file = st.sidebar.file_uploader(
         "Upload Forest Image",
         type=["png", "jpg", "jpeg", "tif", "tiff"],
         help="High-resolution aerial, drone, or ortho imagery (sub-meter resolution recommended)."
-    )
-
-    uploaded_kml_file = st.sidebar.file_uploader(
-        "Upload Area of Interest (KML) - Optional",
-        type=["kml"],
-        help="Optional .kml boundary polygon defining the study site."
     )
 
     # Determine input source
@@ -325,24 +351,103 @@ def main():
         with open(sample_img_path, "rb") as f:
             image_bytes = f.read()
 
-    # Determine KML source
+    # --- Step 2: Area of Interest (Optional) ---
+    st.sidebar.markdown("---")
+    st.sidebar.header("📍 Step 2: Area of Interest (Optional)")
+    
+    st.sidebar.markdown("""
+    <div style="background: rgba(45, 106, 79, 0.08); border-left: 3px solid #2d6a4f; padding: 6px 10px; border-radius: 4px; font-size: 0.82rem; margin-bottom: 8px;">
+        💡 <em>Don't have a KML? No problem. The entire uploaded image will be analyzed.</em>
+    </div>
+    """, unsafe_allow_html=True)
+
+    aoi_mode = st.sidebar.radio(
+        "AOI Selection Mode:",
+        ["Analyze Entire Image", "Upload KML Boundary", "Draw Area on Image"],
+        index=0,
+        help=(
+            "• Analyze Entire Image: Detect trees across the full extent of the image (default).\n"
+            "• Upload KML Boundary: Use a .kml vector polygon to define the forest study boundary.\n"
+            "• Draw Area on Image: Interactively specify a sub-region rectangle to analyze only crowns inside it."
+        )
+    )
+
     kml_bytes = None
     kml_name = None
-    if uploaded_kml_file is not None:
-        kml_bytes = uploaded_kml_file.getvalue()
-        kml_name = uploaded_kml_file.name
-    elif use_sample_kml and sample_kml_path.exists():
-        with open(sample_kml_path, "rb") as f:
-            kml_bytes = f.read()
-        kml_name = "sample_aoi.kml"
+    drawn_roi_h = (0, 100)
+    drawn_roi_v = (0, 100)
 
-    # Invalidate session if image changes
-    current_sig = f"{image_name}_{len(image_bytes) if image_bytes else 0}_{kml_name}"
+    if aoi_mode == "Analyze Entire Image":
+        st.sidebar.caption("✅ **Full Image Mode:** The entire uploaded image will be analyzed.")
+    elif aoi_mode == "Upload KML Boundary":
+        st.sidebar.caption("🗺️ Upload a `.kml` boundary polygon to define your geographic forest study site.")
+        use_sample_kml = st.sidebar.checkbox("Use Sample KML Boundary", value=False)
+        uploaded_kml_file = st.sidebar.file_uploader(
+            "Upload KML File (.kml)",
+            type=["kml"],
+            help="Optional .kml boundary polygon defining the study site."
+        )
+        if uploaded_kml_file is not None:
+            kml_bytes = uploaded_kml_file.getvalue()
+            kml_name = uploaded_kml_file.name
+        elif use_sample_kml and sample_kml_path.exists():
+            with open(sample_kml_path, "rb") as f:
+                kml_bytes = f.read()
+            kml_name = "sample_aoi.kml"
+    elif aoi_mode == "Draw Area on Image":
+        st.sidebar.caption("✏️ Select a custom sub-region. Tree detection will run strictly inside this area.")
+        
+        # Preset shortcut buttons
+        pcol1, pcol2, pcol3 = st.sidebar.columns(3)
+        if pcol1.button("🎯 Center 50%", use_container_width=True):
+            st.session_state["aoi_roi_h"] = (25, 75)
+            st.session_state["aoi_roi_v"] = (25, 75)
+            st.rerun()
+        if pcol2.button("📐 Top Half", use_container_width=True):
+            st.session_state["aoi_roi_h"] = (0, 100)
+            st.session_state["aoi_roi_v"] = (0, 50)
+            st.rerun()
+        if pcol3.button("🔄 Reset", use_container_width=True):
+            st.session_state["aoi_roi_h"] = (0, 100)
+            st.session_state["aoi_roi_v"] = (0, 100)
+            st.rerun()
+
+        drawn_roi_h = st.sidebar.slider(
+            "Horizontal X-Span (% of width):",
+            min_value=0,
+            max_value=100,
+            value=st.session_state["aoi_roi_h"],
+            step=1,
+            help="Select the left and right horizontal boundaries of the area of interest."
+        )
+        st.session_state["aoi_roi_h"] = drawn_roi_h
+
+        drawn_roi_v = st.sidebar.slider(
+            "Vertical Y-Span (% of height):",
+            min_value=0,
+            max_value=100,
+            value=st.session_state["aoi_roi_v"],
+            step=1,
+            help="Select the top and bottom vertical boundaries of the area of interest."
+        )
+        st.session_state["aoi_roi_v"] = drawn_roi_v
+
+        if st.sidebar.button("Clear / Reset Selection", use_container_width=True):
+            st.session_state["aoi_roi_h"] = (0, 100)
+            st.session_state["aoi_roi_v"] = (0, 100)
+            st.rerun()
+
+        coverage_pct = ((drawn_roi_h[1] - drawn_roi_h[0]) * (drawn_roi_v[1] - drawn_roi_v[0])) / 100.0
+        st.sidebar.caption(f"📐 **Selected AOI:** X: {drawn_roi_h[0]}%–{drawn_roi_h[1]}% | Y: {drawn_roi_v[0]}%–{drawn_roi_v[1]}% ({coverage_pct:.1f}% of image)")
+
+    # Invalidate session if image or AOI configuration changes
+    current_sig = f"{image_name}_{len(image_bytes) if image_bytes else 0}_{aoi_mode}_{kml_name}_{drawn_roi_h}_{drawn_roi_v}"
     if st.session_state["input_signature"] != current_sig:
         st.session_state["analysis_complete"] = False
         st.session_state["raw_predictions"] = None
         st.session_state["input_signature"] = current_sig
 
+    # --- Step 3: Spatial Resolution (GSD) ---
     st.sidebar.markdown("---")
     st.sidebar.header("📐 Step 3: Spatial Resolution (GSD)")
 
@@ -385,6 +490,7 @@ def main():
         )
         st.caption(f"Active threshold: **{min_conf_input:.2f}**")
 
+    # --- Step 4: Run Analysis ---
     st.sidebar.markdown("---")
     st.sidebar.markdown("### 🚀 Step 4: Run Analysis")
     analyze_button = st.sidebar.button("Analyze Forest", type="primary", use_container_width=True)
@@ -459,8 +565,17 @@ def main():
     geotiff_meta = st.session_state["geotiff_meta"]
     kml_data = st.session_state["kml_data"]
 
-    # Issue 2: Dynamically filter predictions based on current slider threshold
-    filtered_predictions = filter_predictions(raw_predictions, min_conf_input)
+    # Compute custom drawn AOI pixel bounding box if active
+    rx_min = int(round(img_w * (drawn_roi_h[0] / 100.0)))
+    rx_max = int(round(img_w * (drawn_roi_h[1] / 100.0)))
+    ry_min = int(round(img_h * (drawn_roi_v[0] / 100.0)))
+    ry_max = int(round(img_h * (drawn_roi_v[1] / 100.0)))
+    
+    is_drawn_roi = (aoi_mode == "Draw Area on Image" and (drawn_roi_h != (0, 100) or drawn_roi_v != (0, 100)))
+    active_roi_box = (rx_min, ry_min, rx_max, ry_max) if is_drawn_roi else None
+
+    # Dynamically filter predictions based on confidence slider and active AOI
+    filtered_predictions = filter_predictions(raw_predictions, min_conf=min_conf_input, roi_box=active_roi_box)
 
     # Determine effective GSD
     effective_gsd = None
@@ -477,14 +592,31 @@ def main():
     else:
         effective_gsd = None
 
-    # Spatial alignment verification
+    # Spatial alignment & AOI area setup
     spatial_alignment_valid = False
     alignment_reason = ""
-    if kml_data:
-        spatial_alignment_valid, alignment_reason = validate_image_kml_alignment(geotiff_meta, kml_data)
+    aoi_m2 = None
+
+    if aoi_mode == "Draw Area on Image":
+        if is_drawn_roi:
+            drawn_px = (rx_max - rx_min) * (ry_max - ry_min)
+            aoi_m2 = drawn_px * (effective_gsd ** 2) if effective_gsd else None
+            spatial_alignment_valid = True
+            alignment_reason = f"Custom Drawn AOI: ({drawn_roi_h[0]}%–{drawn_roi_h[1]}% Width, {drawn_roi_v[0]}%–{drawn_roi_v[1]}% Height)"
+        else:
+            aoi_m2 = (img_w * img_h) * (effective_gsd ** 2) if effective_gsd else None
+            spatial_alignment_valid = True
+            alignment_reason = "Full Image Extent"
+    elif aoi_mode == "Upload KML Boundary":
+        aoi_m2 = kml_data.get("aoi_area_m2") if kml_data else None
+        if kml_data:
+            spatial_alignment_valid, alignment_reason = validate_image_kml_alignment(geotiff_meta, kml_data)
+    else:  # Analyze Entire Image
+        aoi_m2 = (img_w * img_h) * (effective_gsd ** 2) if effective_gsd else None
+        spatial_alignment_valid = True
+        alignment_reason = "Full Image Extent"
 
     # Calculate metrics
-    aoi_m2 = kml_data.get("aoi_area_m2") if kml_data else None
     metrics = calculate_canopy_metrics(
         filtered_predictions,
         gsd_m=effective_gsd,
@@ -499,7 +631,7 @@ def main():
 
     # Handle zero detections gracefully
     if metrics["tree_count"] == 0:
-        st.info("ℹ️ **No individual tree crowns were detected above the current model threshold.** Try lowering the confidence threshold slider in the sidebar.")
+        st.info("ℹ️ **No individual tree crowns were detected within the selected AOI above the current model threshold.** Try expanding the region or lowering the confidence slider.")
 
     col1, col2, col3, col4, col5 = st.columns(5)
 
@@ -508,7 +640,7 @@ def main():
         <div class="metric-card">
             <div class="metric-title">Trees Detected</div>
             <div class="metric-value">{metrics['tree_count']}</div>
-            <div class="metric-sub">Individual Crowns</div>
+            <div class="metric-sub">{'Inside AOI' if is_drawn_roi else 'Individual Crowns'}</div>
         </div>
         """, unsafe_allow_html=True)
 
@@ -528,12 +660,29 @@ def main():
         """, unsafe_allow_html=True)
 
     with col3:
-        if kml_data and kml_data.get("aoi_area_ha"):
-            val_str = f"{kml_data['aoi_area_ha']:.2f} ha"
-            sub_str = f"{kml_data['aoi_area_m2']:,.0f} m²"
+        if aoi_mode == "Draw Area on Image":
+            if is_drawn_roi:
+                drawn_px = (rx_max - rx_min) * (ry_max - ry_min)
+                if aoi_m2:
+                    val_str = f"{aoi_m2 / 10000.0:.3f} ha"
+                    sub_str = f"{aoi_m2:,.0f} m² (Drawn AOI)"
+                else:
+                    val_str = f"{drawn_px:,.0f} px²"
+                    sub_str = "Drawn Region"
+            else:
+                val_str = "Full Image"
+                sub_str = f"{img_w * img_h:,.0f} px²"
+        elif aoi_mode == "Upload KML Boundary":
+            if kml_data and kml_data.get("aoi_area_ha"):
+                val_str = f"{kml_data['aoi_area_ha']:.2f} ha"
+                sub_str = f"{kml_data['aoi_area_m2']:,.0f} m² (KML)"
+            else:
+                val_str = "N/A"
+                sub_str = "No KML provided"
         else:
-            val_str = "N/A"
-            sub_str = "No KML provided"
+            val_str = "Full Image"
+            sub_str = f"{img_w * img_h:,.0f} px²"
+
         st.markdown(f"""
         <div class="metric-card">
             <div class="metric-title">AOI Boundary</div>
@@ -545,10 +694,10 @@ def main():
     with col4:
         if metrics["canopy_coverage_pct"] is not None:
             val_str = f"{metrics['canopy_coverage_pct']:.1f}%"
-            sub_str = "Canopy / AOI"
+            sub_str = "Canopy / Drawn AOI" if is_drawn_roi else ("Canopy / AOI" if aoi_mode == "Upload KML Boundary" else "Canopy / Full Image")
         else:
             val_str = "Unavailable"
-            sub_str = "Unverified alignment"
+            sub_str = "Unverified alignment" if aoi_mode == "Upload KML Boundary" else "GSD missing"
         st.markdown(f"""
         <div class="metric-card">
             <div class="metric-title">Canopy Coverage</div>
@@ -574,14 +723,16 @@ def main():
     </div>
     """, unsafe_allow_html=True)
 
-    # Spatial alignment feedback if KML provided
-    if kml_data:
+    # Spatial alignment feedback if KML mode
+    if aoi_mode == "Upload KML Boundary" and kml_data:
         if not kml_data.get("success"):
             st.error(f"❌ **KML Error:** {kml_data.get('message', 'Invalid KML file.')}")
         elif not spatial_alignment_valid:
             st.warning(f"ℹ️ **Geospatial Notice:** {alignment_reason}")
         else:
             st.success(f"✅ **Geospatial Alignment:** {alignment_reason}")
+    elif aoi_mode == "Draw Area on Image" and is_drawn_roi:
+        st.info(f"📐 **Custom Region Active:** Analyzing sub-region bounding box: X=[{rx_min}px, {rx_max}px], Y=[{ry_min}px, {ry_max}px].")
 
     # ----------------------------------------------------
     # ISSUE 3: INSPECT INDIVIDUAL TREE & SELECTION
@@ -644,19 +795,22 @@ def main():
         show_ids = st.checkbox("Show Tree IDs", value=False)
         box_thickness = st.slider("Box Thickness", min_value=1, max_value=4, value=2)
 
-    # Generate annotated image with highlighted tree
+    # Generate annotated image with highlighted tree and optional AOI boundary
     annotated_bgr = draw_annotated_image(
         image_bgr,
         metrics["augmented_df"],
         show_labels=show_labels,
         show_tree_ids=show_ids,
         selected_tree_id=selected_tree_id,
+        roi_box=active_roi_box,
         thickness=box_thickness
     )
     annotated_rgb = cv2.cvtColor(annotated_bgr, cv2.COLOR_BGR2RGB)
 
     with vcol2:
         caption_text = f"CanopyLens Output: {metrics['tree_count']} Crowns"
+        if is_drawn_roi:
+            caption_text += " | Custom AOI Active"
         if selected_tree_id:
             caption_text += f" | Highlighted: {selected_tree_id}"
         st.image(
@@ -720,13 +874,16 @@ def main():
     )
 
     # 3. Download Summary Report
+    drawn_info_str = f"X: {drawn_roi_h[0]}%–{drawn_roi_h[1]}%, Y: {drawn_roi_v[0]}%–{drawn_roi_v[1]}%" if is_drawn_roi else None
     report_text = generate_summary_report(
         image_name=st.session_state["image_name"],
         kml_name=st.session_state["kml_name"],
         metrics=metrics,
         kml_data=kml_data,
         gsd_m=effective_gsd,
-        min_confidence=min_conf_input
+        min_confidence=min_conf_input,
+        aoi_mode=aoi_mode,
+        drawn_aoi_info=drawn_info_str
     )
     exp_col3.download_button(
         label="📑 Download Analysis Report",

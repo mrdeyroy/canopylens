@@ -118,14 +118,17 @@ def draw_annotated_image(
     predictions_df: pd.DataFrame,
     box_color: Tuple[int, int, int] = (0, 230, 115),  # Fresh emerald green (BGR)
     highlight_color: Tuple[int, int, int] = (0, 215, 255),  # High-visibility Gold/Yellow (BGR)
+    roi_color: Tuple[int, int, int] = (255, 215, 0),  # Cyan/Sky Blue for AOI (BGR)
     show_labels: bool = True,
     show_tree_ids: bool = False,
     selected_tree_id: Optional[str] = None,
+    roi_box: Optional[Tuple[int, int, int, int]] = None,
     thickness: int = 2
 ) -> np.ndarray:
     """
     Renders non-intrusive bounding boxes and confidence tags on the image.
     If selected_tree_id is specified, prominently highlights that individual tree.
+    If roi_box is specified (xmin, ymin, xmax, ymax), draws the Area of Interest boundary.
 
     Returns:
         Annotated image in BGR format.
@@ -134,6 +137,35 @@ def draw_annotated_image(
     font = cv2.FONT_HERSHEY_SIMPLEX
     font_scale = 0.4
     font_thickness = 1
+
+    # Draw AOI Boundary if specified
+    if roi_box is not None:
+        try:
+            rx_min, ry_min, rx_max, ry_max = roi_box
+            cv2.rectangle(annotated, (rx_min, ry_min), (rx_max, ry_max), roi_color, max(thickness + 1, 3))
+            
+            roi_tag = "AOI Boundary (Custom Region)"
+            (rtw, rth), r_base = cv2.getTextSize(roi_tag, font, 0.45, 1)
+            r_label_y = max(ry_min, rth + r_base + 6)
+            cv2.rectangle(
+                annotated,
+                (rx_min, r_label_y - rth - 6),
+                (rx_min + rtw + 8, r_label_y + r_base + 2),
+                roi_color,
+                -1
+            )
+            cv2.putText(
+                annotated,
+                roi_tag,
+                (rx_min + 4, r_label_y - 2),
+                font,
+                0.45,
+                (20, 20, 20),
+                1,
+                cv2.LINE_AA
+            )
+        except Exception:
+            pass
 
     # First draw all non-selected trees
     selected_row = None

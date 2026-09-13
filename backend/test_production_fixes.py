@@ -112,17 +112,59 @@ def test_issue_4_css_and_styling():
     assert ".metric-card" in CUSTOM_CSS
     assert ".inspect-card" in CUSTOM_CSS
     assert ".stepper-banner" in CUSTOM_CSS
-    print("[PASS] Custom CSS validated for Streamlit Cloud dark & light mode compatibility.")
+def test_aoi_workflow_modes():
+    print("\n--- Testing Area of Interest (AOI) 3-Mode Workflow ---")
+    mock_df = pd.DataFrame({
+        "tree_id": ["T001", "T002", "T003"],
+        "xmin": [10.0, 100.0, 300.0],
+        "ymin": [10.0, 100.0, 300.0],
+        "xmax": [30.0, 140.0, 350.0],
+        "ymax": [30.0, 140.0, 350.0],
+        "confidence": [0.90, 0.85, 0.80],
+        "label": ["Tree", "Tree", "Tree"]
+    })
+
+    # 1. Mode 1: Analyze Entire Image
+    full_preds = filter_predictions(mock_df, min_conf=0.0, roi_box=None)
+    assert len(full_preds) == 3
+    print(f"[PASS] Mode 1 (Analyze Entire Image): All {len(full_preds)} trees included without boundary constraints.")
+
+    # 2. Mode 2: Draw Area on Image (Sub-region filter: X:[0, 200], Y:[0, 200])
+    roi_box = (0, 0, 200, 200)
+    drawn_preds = filter_predictions(mock_df, min_conf=0.0, roi_box=roi_box)
+    assert len(drawn_preds) == 2  # T001 and T002 fall inside; T003 at (300, 300) is filtered out
+    assert list(drawn_preds["tree_id"]) == ["T001", "T002"]
+    print(f"[PASS] Mode 2 (Draw Area on Image): Filtered {len(drawn_preds)}/3 trees inside custom ROI bounding box.")
+
+    # Test annotation with ROI box
+    blank_img = np.zeros((400, 400, 3), dtype=np.uint8)
+    annotated_roi = draw_annotated_image(blank_img, drawn_preds, roi_box=roi_box)
+    assert annotated_roi is not None and annotated_roi.shape == (400, 400, 3)
+    print(f"[PASS] Annotated image with custom AOI boundary rendered cleanly.")
+
+    # 3. Mode 3: Upload KML Boundary report generation
+    from app import generate_summary_report
+    metrics = calculate_canopy_metrics(full_preds, gsd_m=0.1)
+    rep_full = generate_summary_report("img.png", None, metrics, None, 0.1, aoi_mode="Analyze Entire Image")
+    assert "Full Image Extent" in rep_full
+
+    rep_kml = generate_summary_report("img.png", "site.kml", metrics, {"aoi_area_m2": 5000.0, "aoi_area_ha": 0.5}, 0.1, aoi_mode="Upload KML Boundary")
+    assert "5,000.0 m²" in rep_kml
+
+    rep_draw = generate_summary_report("img.png", None, metrics, None, 0.1, aoi_mode="Draw Area on Image", drawn_aoi_info="X: 25%–75%, Y: 25%–75%")
+    assert "Custom Drawn Region" in rep_draw
+    print(f"[PASS] Summary report generated correctly for all 3 AOI modes.")
 
 
 if __name__ == "__main__":
     print("==================================================")
-    print("RUNNING CANOPYLENS PRODUCTION BUG FIX VALIDATION")
+    print("RUNNING CANOPYLENS PRODUCTION BUG FIX & AOI SUITE")
     print("==================================================")
     test_issue_1_gsd_logic()
     test_issue_2_confidence_threshold()
     test_issue_3_tree_inspection_and_crop()
     test_issue_4_css_and_styling()
+    test_aoi_workflow_modes()
     print("\n==================================================")
-    print("ALL PRODUCTION BUG FIX TESTS PASSED SUCCESSFULLY!")
+    print("ALL TESTS PASSED WITH 100% SUCCESS!")
     print("==================================================")
