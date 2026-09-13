@@ -44,3 +44,8 @@ backend/.venv
 # OS
 .DS_Store
 Thumbs.db
+
+# Hackathon submission notes (private)
+docs/hackathon_submission.md
+*hackathon_submission*
+
