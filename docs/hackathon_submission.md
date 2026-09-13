@@ -74,17 +74,21 @@ I built **CanopyLens**, an open-source web tool that automatically detects indiv
 ---
 
 ### 6. What technologies did you use?
-- **Python 3.12** — Core programming language.
-- **DeepForest 2.1.0 (PyTorch & torchvision)** — Machine learning model (RetinaNet with ResNet-50 backbone) pre-trained for tree crown detection.
-- **Streamlit** — Web application framework and user interface.
-- **OpenCV & Pillow** — Image processing, bounding box rendering, and tree crop extraction.
-- **Pandas & NumPy** — Data manipulation and metric aggregation.
-- **Rasterio, Shapely, Pyproj & FastKML** — GeoTIFF metadata extraction, polygon parsing, and UTM coordinate area calculations.
+- **Languages**: Python 3.12
+- **Frameworks & Web UI**: Streamlit 1.63.0
+- **Machine Learning Models**: DeepForest 2.1.0 (RetinaNet with ResNet-50 backbone, PyTorch / Torchvision)
+- **Geospatial & Image Processing**: Rasterio, Shapely, Pyproj, FastKML, OpenCV (`opencv-python-headless`), Pillow
+- **Data Analytics**: Pandas, NumPy
+- **Databases & APIs**: None required (runs completely serverless with in-memory session state and GeoJSON/CSV exports)
+- **Version Control & Deployment**: Git, GitHub, Streamlit Community Cloud
 
 ---
 
 ### 7. Did you use AI coding tools? If yes, which ones?
-Yes. I used **Google Antigravity (powered by Gemini)** as an AI pair-programming assistant to help write boilerplate code, build the Streamlit UI components, design modular test suites, and debug CSS styling issues for Streamlit Cloud deployment.
+Yes. I used:
+- **Google Antigravity (Gemini)**: For project structuring, Streamlit UI components, testing, and debugging.
+- **ChatGPT (OpenAI)**: For conceptual planning, drafting documentation, and quick code troubleshooting.
+- **GitHub Copilot**: For inline code autocompletion and repetitive function writing.
 
 ---
 
