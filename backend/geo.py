@@ -223,31 +223,45 @@ def extract_geotiff_metadata(image_path: str) -> Dict[str, Any]:
         meta["message"] = "rasterio library not installed; cannot inspect GeoTIFF tags."
         return meta
 
+    ext = Path(image_path).suffix.lower()
+    if ext in [".png", ".jpg", ".jpeg"]:
+        meta["message"] = f"Standard {ext.upper().replace('.', '')} raster format (no geospatial headers available)."
+        return meta
+
     try:
         with rasterio.open(image_path) as ds:
             meta["width"] = ds.width
             meta["height"] = ds.height
-            if ds.crs is not None:
-                meta["is_georeferenced"] = True
+            if ds.crs is not None and not ds.transform.is_identity:
                 meta["crs"] = str(ds.crs)
                 meta["bounds"] = (ds.bounds.left, ds.bounds.bottom, ds.bounds.right, ds.bounds.top)
 
                 # Determine pixel size in meters
                 res_x, res_y = abs(ds.transform[0]), abs(ds.transform[4])
-                
+
                 if ds.crs.is_projected:
-                    # Projected CRS (normally meters)
-                    meta["gsd_m"] = float((res_x + res_y) / 2.0)
-                    meta["message"] = f"Georeferenced projected raster detected (GSD: {meta['gsd_m']:.3f} m/px, CRS: {ds.crs})."
+                    # Projected CRS (meters)
+                    computed_gsd = float((res_x + res_y) / 2.0)
+                    if computed_gsd > 0 and not math.isnan(computed_gsd):
+                        meta["gsd_m"] = computed_gsd
+                        meta["is_georeferenced"] = True
+                        meta["message"] = f"Georeferenced projected raster detected (GSD: {meta['gsd_m']:.3f} m/px, CRS: {ds.crs})."
+                    else:
+                        meta["message"] = "Projected CRS detected but pixel resolution is invalid."
                 else:
-                    # Geographic CRS (degrees) - approximate conversion at image latitude
+                    # Geographic CRS (degrees) - approximate conversion at image center latitude
                     center_lat = (ds.bounds.bottom + ds.bounds.top) / 2.0
                     meters_per_deg_lat = 111320.0
                     meters_per_deg_lon = 111320.0 * math.cos(math.radians(center_lat))
                     gsd_x_m = res_x * meters_per_deg_lon
                     gsd_y_m = res_y * meters_per_deg_lat
-                    meta["gsd_m"] = float((gsd_x_m + gsd_y_m) / 2.0)
-                    meta["message"] = f"Geographic raster converted to meters (Approx GSD: {meta['gsd_m']:.3f} m/px)."
+                    computed_gsd = float((gsd_x_m + gsd_y_m) / 2.0)
+                    if computed_gsd > 0 and not math.isnan(computed_gsd):
+                        meta["gsd_m"] = computed_gsd
+                        meta["is_georeferenced"] = True
+                        meta["message"] = f"Geographic raster converted to meters (Approx GSD: {meta['gsd_m']:.3f} m/px, CRS: {ds.crs})."
+                    else:
+                        meta["message"] = "Geographic CRS detected but ground resolution could not be computed."
 
                 # Transform bounds to WGS84 if needed
                 try:
@@ -260,9 +274,8 @@ def extract_geotiff_metadata(image_path: str) -> Dict[str, Any]:
                 except Exception:
                     pass
             else:
-                meta["message"] = "Image has no embedded CRS/georeferencing tags."
+                meta["message"] = "GeoTIFF does not contain valid embedded CRS or spatial transform tags."
     except Exception as e:
-        # Non-geotiff raster (e.g. PNG, JPG) or unreadable by rasterio
         meta["message"] = f"Standard non-georeferenced image ({type(e).__name__})."
 
     return meta
